@@ -1,81 +1,99 @@
 <?php
 session_start();
 require('../includes/config.php');
-
-
-// Check admin login session (adjust if you use a different session variable)
-if (!isset($_SESSION['admin_id']) || $_SESSION['role'] !== 'admin') {
+require('../includes/empnav.php');
+if (!isset($_SESSION['employee_id']) || $_SESSION['role'] !== 'employee') {
     header("Location: ../login.php");
     exit;
 }
+$employee_id = $_SESSION['employee_id'];
 
-// Total employees count
-$sql = "SELECT COUNT(*) FROM employees";
-$result = $conn->query($sql);
-$totalEmployees = $result->fetch_row()[0];
-
-// Present today count (assuming 'attendance' table has 'date' and 'status')
-$today = date('Y-m-d');
-$sql = "SELECT COUNT(*) FROM attendance WHERE date = ? AND status = 'Present'";
+// Fetch name
+$sql = "SELECT full_name FROM employees WHERE id = ?";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("s", $today);
+$stmt->bind_param("i", $employee_id);
 $stmt->execute();
-$stmt->bind_result($presentToday);
+$stmt->bind_result($name);
 $stmt->fetch();
 $stmt->close();
 
-// Pending leaves count (using 'leaves' table)
-$sql = "SELECT COUNT(*) FROM leaves WHERE status = 'Pending'";
-$result = $conn->query($sql);
-$pendingLeaves = $result->fetch_row()[0];
+// Get last month's salary
+$salary = 0;
+$sql = "SELECT net_pay FROM salaries WHERE employee_id = ? ORDER BY generated_on DESC LIMIT 1";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("i", $employee_id);
+$stmt->execute();
+$stmt->bind_result($salary);
+$stmt->fetch();
+$stmt->close();
+
+// Get leaves remaining (example: out of 20 annual leaves)
+$total_allowed = 20;
+$sql = "SELECT COUNT(*) FROM leaves WHERE employee_id = ? AND status = 'Approved'";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("i", $employee_id);
+$stmt->execute();
+$stmt->bind_result($approved_leaves);
+$stmt->fetch();
+$stmt->close();
+$leaves = $total_allowed - $approved_leaves;
+
+// Get attendance percentage
+$sql = "SELECT 
+    (SELECT COUNT(*) FROM attendance WHERE employee_id = ?) AS total_days,
+    (SELECT COUNT(*) FROM attendance WHERE employee_id = ? AND status = 'Present') AS present_days";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("ii", $employee_id, $employee_id);
+$stmt->execute();
+$stmt->bind_result($total_days, $present_days);
+$stmt->fetch();
+$stmt->close();
+
+$attendance = ($total_days > 0) ? round(($present_days / $total_days) * 100, 2) : 0;
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Admin Dashboard | Payroll System</title>
-  <link rel="stylesheet" href="../css/styles.css" />
+  <meta charset="UTF-8">
+  <title>Employee Dashboard | Payroll System</title>
+  <link rel="stylesheet" href="../css/styles.css">
 </head>
 <body>
-<?php 
-require('../includes/admnav.php');
-?>
+
 <header>
-  <h1>Admin Dashboard</h1>
+  <h1>Employee Dashboard</h1>
 </header>
 
 <main>
-  <section id="dashboard-section">
-    <h2>Welcome, Admin!</h2>
+  <section>
+    <h2>Welcome, <?= htmlspecialchars($name) ?></h2>
     <div class="dashboard-cards">
       <div class="card">
-        <h3>Total Employees</h3>
-        <p id="totalEmployees"><?= $totalEmployees ?></p>
+        <h3>Last Month Salary</h3>
+        <p>₹<?= number_format($salary, 2) ?></p>
       </div>
       <div class="card">
-        <h3>Present Today</h3>
-        <p id="presentToday"><?= $presentToday ?></p>
+        <h3>Leaves Remaining</h3>
+        <p><?= $leaves ?></p>
       </div>
       <div class="card">
-        <h3>Pending Leaves</h3>
-        <p id="pendingLeaves"><?= $pendingLeaves ?></p>
+        <h3>Attendance %</h3>
+        <p><?= $attendance ?>%</p>
       </div>
     </div>
 
     <div class="quick-links">
-      <h3>Quick Actions</h3>
+      <h3>Quick Access</h3>
       <ul>
-        <li><a href="add_employee.php">Add New Employee</a></li>
-        <li><a href="attendance.php">Mark Attendance</a></li>
-        <li><a href="leave_requests.php">Review Leave Requests</a></li>
-        <li><a href="reports.php">Generate Reports</a></li>
+        <li><a href="view_attendance.php">My Attendance</a></li>
+        <li><a href="view_salary.php">My Salary Slip</a></li>
+        <li><a href="leave_application.php">Apply for Leave</a></li>
       </ul>
     </div>
   </section>
 </main>
 
 <?php require('../includes/footer.php'); ?>
-
 </body>
 </html>
